@@ -1,4 +1,4 @@
-name: CICD Pipeline 
+name: CICD Pipeline
 
 on:
   push:
@@ -6,51 +6,91 @@ on:
 
 jobs:
   compile:
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux]
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: maven
-    - name: Build with Maven
-      run: mvn compile
-      
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: mvn -B compile
+
   security-check:
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux]
     needs: compile
 
     steps:
-    - uses: actions/checkout@v4
-    - name: Trivy Installation
-      run: |
-        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-        echo deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main | sudo tee -a /etc/apt/sources.list.d/trivy.list
-        sudo apt-get update -y
-        sudo apt-get install -y trivy
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # gitleaks needs full history
 
-    - name: Trivy FS Scan
-      run: trivy fs --format table -o fs-report.json .
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
 
-    - name: Gitleaks Installation
-      run: sudo apt install gitleaks -y
-    - name: Gitleaks Code Scan
-      run: gitleaks detect source . -r gitleaks-report.json -f json
+      - name: Resolve Maven dependencies
+        run: mvn -B dependency:resolve
+
+      - name: Trivy installation
+        run: |
+          if ! command -v trivy >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y wget gnupg lsb-release
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+            sudo apt-get update
+            sudo apt-get install -y trivy
+          fi
+
+      - name: Trivy FS scan
+        run: |
+          trivy fs --scanners vuln --offline-scan --format table -o trivy-fs-report.txt .
+          cat trivy-fs-report.txt
+
+      - name: Gitleaks installation
+        run: |
+          if ! command -v gitleaks >/dev/null 2>&1; then
+            wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.18.4/gitleaks_8.18.4_linux_x64.tar.gz
+            tar -xzf gitleaks_8.18.4_linux_x64.tar.gz gitleaks
+            sudo mv gitleaks /usr/local/bin/
+            rm -f gitleaks_8.18.4_linux_x64.tar.gz
+          fi
+
+      - name: Gitleaks code scan
+        run: gitleaks detect --source . -r gitleaks-report.json -f json
+
+      - name: Upload scan reports
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: security-reports
+          path: |
+            trivy-fs-report.txt
+            gitleaks-report.json
+          if-no-files-found: ignore
 
   test:
-    runs-on: self-hosted
+    runs-on: [self-hosted, linux]
     needs: security-check
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: maven
-    - name: Unit Test Cases
-      run: mvn test
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Unit test cases
+        run: mvn -B test
