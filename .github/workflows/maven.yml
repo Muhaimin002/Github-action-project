@@ -1,3 +1,4 @@
+```yaml
 name: CICD Pipeline
 
 on:
@@ -5,8 +6,11 @@ on:
     branches:
       - main
 
+  workflow_dispatch:
+
 jobs:
   compile:
+    name: Compile Java Application
     runs-on: self-hosted
 
     steps:
@@ -18,10 +22,11 @@ jobs:
           java -version
           mvn -version
 
-      - name: Build with Maven
-        run: mvn compile
+      - name: Compile with Maven
+        run: mvn -B compile
 
   security-check:
+    name: Security Scan
     runs-on: self-hosted
     needs: compile
 
@@ -37,42 +42,14 @@ jobs:
           cache: maven
 
       - name: Resolve Maven dependencies
-        run: mvn dependency:resolve
+        run: mvn -B dependency:resolve
 
       - name: Install Trivy
+        shell: bash
         run: |
           if ! command -v trivy >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y wget gnupg
-            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-              | sudo gpg --dearmor --yes -o /usr/share/keyrings/trivy.gpg
-            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
-              | sudo tee /etc/apt/sources.list.d/trivy.list
-            sudo apt-get update
-            sudo apt-get install -y trivy
-          fi
 
-      - name: Scan filesystem with Trivy
-        run: trivy fs --scanners vuln .
-
-      - name: Install Gitleaks
-        run: |
-          if ! command -v gitleaks >/dev/null 2>&1; then
-            GITLEAKS_VERSION="8.24.2"
-            wget -q "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -O /tmp/gitleaks.tar.gz
-            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-            sudo install /tmp/gitleaks /usr/local/bin/gitleaks
-          fi
-
-      - name: Scan repository with Gitleaks
-        run: gitleaks detect --source . --report-format json --report-path gitleaks-report.json
-
-  test:
-    runs-on: self-hosted
-    needs: security-check
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
+            wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | sudo gpg --dearmor --yes
