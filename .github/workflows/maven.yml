@@ -7,7 +7,7 @@ on:
 
 jobs:
   compile:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -23,14 +23,20 @@ jobs:
         run: mvn compile
 
   security-check:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     needs: compile
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check Trivy version
-        run: trivy --version
+      - name: Set up Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
 
       - name: Scan filesystem
         run: trivy fs --scanners vuln .
