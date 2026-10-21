@@ -1,28 +1,32 @@
-```yaml
+
 name: CICD Pipeline
 
 on:
   push:
     branches:
       - main
-
   workflow_dispatch:
 
 jobs:
   compile:
-    name: Compile Java Application
+    name: Compile
     runs-on: self-hosted
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Verify Java and Maven
-        run: |
-          java -version
-          mvn -version
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
 
-      - name: Compile with Maven
+      - name: Verify Maven
+        run: mvn -version
+
+      - name: Compile application
         run: mvn -B compile
 
   security-check:
@@ -34,14 +38,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: temurin
+          java-version: '17'
           cache: maven
 
-      - name: Resolve Maven dependencies
+      - name: Resolve dependencies
         run: mvn -B dependency:resolve
 
       - name: Install Trivy
@@ -50,6 +54,43 @@ jobs:
           if ! command -v trivy >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y wget gnupg
+            wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor --yes -o /usr/share/keyrings/trivy.gpg
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/trivy.list
+            sudo apt-get update
+            sudo apt-get install -y trivy
+          fi
 
-            wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key \
-              | sudo gpg --dearmor --yes
+      - name: Scan dependencies and filesystem
+        run: trivy fs --scanners vuln --exit-code 0 .
+
+      - name: Install Gitleaks
+        shell: bash
+        run: |
+          if ! command -v gitleaks >/dev/null 2>&1; then
+            VERSION="8.24.2"
+            wget -q "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" -O /tmp/gitleaks.tar.gz
+            tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+            sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          fi
+
+      - name: Scan for secrets
+        run: gitleaks detect --source . --redact --exit-code 1
+
+  test:
+    name: Unit Tests
+    runs-on: self-hosted
+    needs: security-check
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Run unit tests
+        run: mvn -B test
