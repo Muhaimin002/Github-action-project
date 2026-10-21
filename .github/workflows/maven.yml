@@ -50,7 +50,11 @@ jobs:
 
       - name: Scan filesystem
         run: trivy fs --scanners vuln --offline-scan .
-        - name: Gitleaks Installation
-      run: sudo apt install gitleaks -y
-    - name: Gitleaks Code Scan
-      run: gitleaks detect source . -r gitleaks-report.json -f json
+
+      - name: Install Gitleaks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gitleaks
+
+      - name: Gitleaks Code Scan
+        run: gitleaks detect --source . --report-format json --report-path gitleaks-report.json
