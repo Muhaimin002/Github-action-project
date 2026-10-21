@@ -37,6 +37,6 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/trivy.list
           sudo apt-get update
           sudo apt-get install -y trivy
-
+        
       - name: Scan filesystem
-        run: trivy fs --scanners vuln .
+       run: trivy fs --scanners vuln --offline-scan .
