@@ -1,4 +1,3 @@
-```yaml
 name: CICD Pipeline
 
 on:
@@ -35,4 +34,3 @@ jobs:
 
       - name: Scan filesystem
         run: trivy fs --scanners vuln .
-```
