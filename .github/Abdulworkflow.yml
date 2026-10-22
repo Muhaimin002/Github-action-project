@@ -1,3 +1,4 @@
+
 name: CICD Pipeline
 
 on:
@@ -21,7 +22,7 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        run: mvn compile
+        run: mvn -B compile
 
   security-check:
     runs-on: self-hosted
@@ -39,20 +40,40 @@ jobs:
           cache: maven
 
       - name: Resolve Maven dependencies
-        run: mvn dependency:resolve
+        run: mvn -B dependency:resolve
 
       - name: Set up Trivy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget gnupg
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+          if ! command -v trivy >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y wget gnupg
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/trivy.list
+            sudo apt-get update
+            sudo apt-get install -y trivy
+          fi
 
       - name: Scan filesystem
-        run: trivy fs --scanners vuln .
-        
+        run: trivy fs --scanners vuln --exit-code 0 .
+
+  test:
+    runs-on: self-hosted
+    needs: security-check
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+
+      - name: Run tests
+        run: mvn -B test
+
   build_project_and_sonar_scan:
     runs-on: self-hosted
     needs: test
@@ -70,8 +91,13 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Build Project
-        run: mvn -B package
+      - name: Build and generate coverage report
+        run: mvn -B clean verify
+
+      - name: Verify JaCoCo report
+        run: |
+          test -s target/site/jacoco/jacoco.xml
+          ls -lh target/site/jacoco/jacoco.xml
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
@@ -85,6 +111,10 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+            -Dsonar.verbose=true
 
       - name: SonarQube Quality Gate Check
         id: sonarqube-quality-gate-check
@@ -94,4 +124,3 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-
