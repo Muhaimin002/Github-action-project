@@ -122,6 +122,17 @@ jobs:
           ls -lh target/site/jacoco/jacoco.xml
           grep -o '<counter type="LINE"[^>]*/>' target/site/jacoco/jacoco.xml | tail -1
 
+      # TEMPORARY: remove once coverage is working in SonarQube
+      - name: Debug Sonar inputs
+        run: |
+          echo "--- jacoco.xml (first 700 chars) ---"
+          head -c 700 target/site/jacoco/jacoco.xml
+          echo
+          echo "--- target/classes ---"
+          ls target/classes | head
+          echo "--- target/test-classes ---"
+          ls target/test-classes | head
+
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
