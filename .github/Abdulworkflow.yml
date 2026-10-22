@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   compile:
     runs-on: self-hosted
@@ -21,7 +24,7 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Build with Maven
+      - name: Compile with Maven
         run: mvn -B compile
 
   security-check:
@@ -42,18 +45,20 @@ jobs:
       - name: Resolve Maven dependencies
         run: mvn -B dependency:resolve
 
-      - name: Set up Trivy
+      - name: Install Trivy if needed
         run: |
           if ! command -v trivy >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y wget gnupg
-            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
-            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" | sudo tee /etc/apt/sources.list.d/trivy.list
+            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+              | sudo gpg --dearmor -o /usr/share/keyrings/trivy.gpg
+            echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(. /etc/os-release && echo "$VERSION_CODENAME") main" \
+              | sudo tee /etc/apt/sources.list.d/trivy.list
             sudo apt-get update
             sudo apt-get install -y trivy
           fi
 
-      - name: Scan filesystem
+      - name: Scan filesystem with Trivy
         run: trivy fs --scanners vuln --exit-code 0 .
 
   test:
@@ -71,7 +76,7 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Run tests
+      - name: Run unit tests
         run: mvn -B test
 
   build_project_and_sonar_scan:
@@ -91,11 +96,12 @@ jobs:
           distribution: temurin
           cache: maven
 
-      - name: Build and generate coverage report
+      - name: Build and generate JaCoCo coverage report
         run: mvn -B clean verify
 
       - name: Verify JaCoCo report
         run: |
+          pwd
           test -s target/site/jacoco/jacoco.xml
           ls -lh target/site/jacoco/jacoco.xml
 
@@ -107,18 +113,18 @@ jobs:
           if-no-files-found: error
 
       - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-        with:
-          args: >
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+        run: |
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml \
             -Dsonar.verbose=true
 
       - name: SonarQube Quality Gate Check
         id: sonarqube-quality-gate-check
-        uses: sonarsource/sonarqube-quality-gate-action@master
+        uses: SonarSource/sonarqube-quality-gate-action@master
         with:
           pollingTimeoutSec: 600
         env:
