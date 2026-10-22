@@ -117,7 +117,11 @@ jobs:
         run: mvn -B clean verify
 
       - name: Verify JaCoCo XML report
-        run: test -f target/site/jacoco/jacoco.xml
+        run: |
+          test -s target/site/jacoco/jacoco.xml
+          echo "JaCoCo XML report exists"
+          ls -lh target/site/jacoco/jacoco.xml
+          grep -o '<counter type="LINE"[^>]*/>' target/site/jacoco/jacoco.xml | tail -1
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
@@ -128,13 +132,6 @@ jobs:
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v5.0.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
-
-     
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5.0.0
         with:
           args: >
             -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
@@ -142,3 +139,11 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
 
+      - name: SonarQube Quality Gate Check
+        id: sonarqube-quality-gate-check
+        uses: sonarsource/sonarqube-quality-gate-action@master
+        with:
+          pollingTimeoutSec: 600
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
