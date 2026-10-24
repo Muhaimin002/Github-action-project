@@ -14,9 +14,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AWS_REGION: ap-south-1
-  EKS_CLUSTER: devopsshack-cluster
-  K8S_MANIFEST: ds.yml
   DOCKER_IMAGE_NAME: bankapp
 
 jobs:
@@ -247,79 +244,36 @@ jobs:
             ${{ steps.dh.outputs.user }}/${{ env.DOCKER_IMAGE_NAME }}:latest
             ${{ steps.dh.outputs.user }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}
 
-  deploy_to_kubernetes:
-    name: Deploy to Amazon EKS
+  update_helm_repo:
+    name: Update image tag in Helm repo
     runs-on: self-hosted
     needs: build_docker_image_and_push
-    timeout-minutes: 20
-
-    permissions:
-      contents: read
-      id-token: write
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout code
+      - name: Checkout Helm repo
         uses: actions/checkout@v4
-
-      - name: Validate and clean Docker Hub username
-        id: dh
-        env:
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
-        shell: bash
-        run: |
-          USER_CLEAN="$(printf '%s' "$DOCKERHUB_USERNAME" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
-          if [ -z "$USER_CLEAN" ]; then
-            echo "Missing DOCKERHUB_USERNAME repository variable"
-            exit 1
-          fi
-          echo "user=$USER_CLEAN" >> "$GITHUB_OUTPUT"
-
-      - name: Install AWS CLI if missing
-        shell: bash
-        run: |
-          if ! command -v aws >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y unzip curl
-            ARCH="$(uname -m)"
-            curl -s "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscliv2.zip
-            unzip -q -o /tmp/awscliv2.zip -d /tmp
-            sudo /tmp/aws/install --update
-          fi
-          aws --version
-
-      - name: Configure AWS credentials using OIDC
-        uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::988710971470:role/portfolio-github-actions-role
-          aws-region: ${{ env.AWS_REGION }}
+          repository: Muhaimin002/bankapp-helm
+          token: ${{ secrets.HELM_REPO_TOKEN }}
+          path: helm-repo
 
-      - name: Verify AWS identity
-        run: aws sts get-caller-identity
+      - name: Show current tag lines
+        working-directory: helm-repo
+        run: grep -n "tag:" bankapp/values.yaml
 
-      - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
-        with:
-          version: latest
-
-      - name: Configure EKS kubeconfig
-        run: |
-          aws eks update-kubeconfig \
-            --region "$AWS_REGION" \
-            --name "$EKS_CLUSTER"
-
-      - name: Verify Kubernetes connection
-        run: kubectl get nodes
-
-      - name: Apply manifests
-        run: kubectl apply -f "$K8S_MANIFEST"
-
-      - name: Update app image
+      - name: Bump image tag
+        working-directory: helm-repo
         env:
-          DOCKERHUB_USERNAME: ${{ steps.dh.outputs.user }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          kubectl set image deployment/bankapp \
-            bankapp="${DOCKERHUB_USERNAME}/${DOCKER_IMAGE_NAME}:${IMAGE_TAG}"
-
-      - name: Verify rollout
-        run: kubectl rollout status deployment/bankapp --timeout=180s
+          sed -i -E "s|^([[:space:]]*tag:).*|\1 \"${IMAGE_TAG}\"|" bankapp/values.yaml
+          grep -n "tag:" bankapp/values.yaml
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "No change to commit"
+          else
+            git commit -am "bankapp: image ${IMAGE_TAG}"
+            git push
+          fi
