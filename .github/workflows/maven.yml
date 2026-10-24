@@ -287,6 +287,24 @@ jobs:
           fi
           aws --version
 
+      # TEMPORARY: remove once the OIDC role assumption works
+      - name: Debug OIDC token claims
+        shell: bash
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+          TOKEN=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r '.value')
+          echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+' \
+            | awk '{ while (length($0) % 4) $0 = $0 "="; print }' \
+            | base64 -d 2>/dev/null \
+            | jq '{sub, aud, ref, repository, job_workflow_ref}'
+          echo "Role ARN variable length: ${#AWS_ROLE_ARN_CHECK}"
+        env:
+          AWS_ROLE_ARN_CHECK: ${{ vars.AWS_ROLE_ARN }}
+
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
